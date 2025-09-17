@@ -6,7 +6,7 @@ pausar_video = False
 velocidad = 33  # delay inicial en ms (~30 fps)
 
 # Ruta del video
-video_path = 'video2_lab1.mp4'
+video_path = '../tiro1.mp4'
 cap = cv2.VideoCapture(video_path)
 
 if not cap.isOpened():
@@ -22,6 +22,8 @@ nuevo_ancho = 680
 D_real_cm = 4.2   # diámetro real de la bola en cm
 cm_por_px = None  # se calculará en el primer frame
 trayectoria = []  # [(t, x_cm, y_cm)]
+trayectoria_px = []
+frames_id = []
 fps = cap.get(cv2.CAP_PROP_FPS)
 if fps == 0:  # fallback si el video no da fps
     fps = 30
@@ -72,10 +74,9 @@ while True:
                     cm_por_px = D_real_cm / diametro_px
 
                 x_cm = cx * cm_por_px
-                y_cm = cy * cm_por_px
+                y_cm = (nuevo_alto-cy) * cm_por_px
 
-                trayectoria.append((tiempo, x_cm, y_cm))
-                tiempo += 1 / fps
+
 
                 (x, y, w, h) = cv2.boundingRect(c)
                 radio = int((w + h) / 4)
@@ -83,6 +84,23 @@ while True:
                 cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
                 cv2.putText(frame, f"({x_cm:.2f},{y_cm:.2f})", (cx+10, cy-10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+                f_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+                count = len(frames_id)
+
+                if frames_id.count(f_id) ==0:
+                    frames_id.append(f_id)
+                    trayectoria.append((tiempo, x_cm, y_cm))
+                    trayectoria_px.append(( cx, cy))
+                    tiempo += 1 / fps
+    if len(frames_id)>1:
+        for fr in range(len(frames_id[1:])):
+            nfr = fr
+            #print(trayectoria[fr][1:])
+            cv2.line(frame, trayectoria_px[fr],trayectoria_px[fr+1],(30,60,60),2,cv2.LINE_AA)
+
+
+
 
     cv2.imshow("Video", frame)
     cv2.imshow("Mascara", mask)
@@ -127,11 +145,18 @@ if len(trayectoria) > 2:
     ay = np.gradient(vy, t)
     a = np.sqrt(ax**2 + ay**2)
 
+    #aproximar la sln
+    t_i= 2
+    for accel in ay:
+        if accel>0:
+            break
+        t_i+=1
+    int_t = t[:t_i]
+    calculate_x = vx[0] * int_t + x[0]
+    calculate_y = -0.5 * 980 * int_t ** 2 + vy[0] * int_t + y[0]
+    calculate_pos = np.sqrt(calculate_x**2 + calculate_y**2)
     # Posición final
-    x_final = x[-1]
-    y_final = y[-1]
 
-    print("Posición final: (%.2f cm, %.2f cm)" % (x_final, y_final))
     print("Velocidad promedio: %.2f cm/s" % np.mean(v))
     print("Aceleración promedio: %.2f cm/s^2" % np.mean(a))
 
@@ -141,23 +166,56 @@ if len(trayectoria) > 2:
     plt.xlabel("x (cm)")
     plt.ylabel("y (cm)")
     plt.title("Trayectoria")
-    plt.gca().invert_yaxis()
-    plt.show()
+    #plt.gca().invert_yaxis()
 
     # Graficar velocidad
-    plt.figure()
+    plt.figure(figsize=(6,4))
+    plt.subplot(3,1,1)
     plt.plot(t, v, 'r-')
     plt.xlabel("Tiempo (s)")
     plt.ylabel("Velocidad (cm/s)")
     plt.title("Velocidad vs Tiempo")
-    plt.show()
+
+    plt.subplot(3, 1, 2)
+    plt.plot(t, vx, 'r-')
+    plt.xlabel("Tiempo (s)")
+    plt.ylabel("Velocidad (cm/s)")
+    plt.title("Vx vs Tiempo")
+
+    plt.subplot(3, 1, 3)
+    plt.plot(t, vy)
+    plt.xlabel("Tiempo (s)")
+    plt.ylabel("Velocidad (cm/s)")
+    plt.title("Vy vs Tiempo")
 
     # Graficar aceleración
     plt.figure()
     plt.plot(t, a, 'g-')
+    plt.plot(t, ax, 'r-.')
+    plt.plot(t, ay, 'b-.')
     plt.xlabel("Tiempo (s)")
     plt.ylabel("Aceleración (cm/s^2)")
     plt.title("Aceleración vs Tiempo")
+
+    #comparar resultados
+    plt.figure()
+    plt.plot(x[:t_i], y[:t_i], 'g-', label = "Pos real")
+    plt.plot(calculate_x, calculate_y, 'r-.',label = "Pos aprox")
+    plt.xlabel("x (cm)")
+    plt.ylabel("y (cm)")
+    plt.legend()
+    plt.title("Trayectoria aproximada")
     plt.show()
+
+    x_final = x[t_i]
+    y_final = y[t_i]
+    x_final_1 = calculate_x[-1]
+    y_final_1 = calculate_y[-1]
+    if(len(x[:t_i]) != len(calculate_x)):
+        print("NO Coinciden los vectores")
+
+    print("Posición final: (%.2f cm, %.2f cm)" % (x_final, y_final))
+    print("Posición final aprox: (%.2f cm, %.2f cm)" % (x_final_1, y_final_1))
+
 else:
     print("No se detectó suficiente trayectoria para análisis.")
