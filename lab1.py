@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+
+
 pausar_video = False
 velocidad = 33  # delay inicial en ms (~30 fps)
 
@@ -24,6 +26,10 @@ cm_por_px = None  # se calculará en el primer frame
 trayectoria = []  # [(t, x_cm, y_cm)]
 trayectoria_px = []
 frames_id = []
+x_val = []
+y_val = []
+vx_val = []
+vy_val = []
 fps = cap.get(cv2.CAP_PROP_FPS)
 if fps == 0:  # fallback si el video no da fps
     fps = 30
@@ -59,10 +65,10 @@ while True:
 
     # Contornos
     contornos, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    f_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) #Cual es la posicion del frame analizado
     for c in contornos:
         area = cv2.contourArea(c)
-        if area > 300:  
+        if area > 300:
             M = cv2.moments(c)
             if M["m00"] != 0:
                 cx = int(M["m10"] / M["m00"])
@@ -75,24 +81,39 @@ while True:
 
                 x_cm = cx * cm_por_px
                 y_cm = (nuevo_alto-cy) * cm_por_px
-
-
-
                 (x, y, w, h) = cv2.boundingRect(c)
                 radio = int((w + h) / 4)
                 cv2.circle(frame, (cx, cy), radio, (0, 255, 0), 2)
                 cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
-                cv2.putText(frame, f"({x_cm:.2f},{y_cm:.2f})", (cx+10, cy-10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-
-                f_id = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
                 count = len(frames_id)
 
                 if frames_id.count(f_id) ==0:
                     frames_id.append(f_id)
                     trayectoria.append((tiempo, x_cm, y_cm))
+                    x_val.append(x_cm)
+                    y_val.append(y_cm)
+                    vx_val.append(0)
+                    vy_val.append(0)
                     trayectoria_px.append(( cx, cy))
                     tiempo += 1 / fps
+                else:
+                    index = frames_id.index(f_id)
+                    if len(frames_id)>1 and index>0:
+                        vx_val[index] = (x_val[index] - x_val[index-1])*fps
+                        vy_val[index] = (y_val[index] - y_val[index-1])*fps
+
+    if frames_id.count(f_id) > 0:
+        index = frames_id.index(f_id)
+        cv2.putText(frame, f"X = {x_val[index]:0.2f}, Y= {y_val[index]:0.2f}   [cm]", (10, 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 0, 100), 2)
+        cv2.putText(frame, f"Vx = {vx_val[index]:0.2f}, Vy= {vy_val[index]:0.2f}   [cm/s]", (10, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 0, 100), 2)
+    else:
+        cv2.putText(frame, "X = ..., Y= ...", (10, 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 0, 100), 2)
+        cv2.putText(frame, "Vx = ..., Vy = ...", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 0, 100), 2)
+
     if len(frames_id)>1:
         for fr in range(len(frames_id[1:])):
             nfr = fr
@@ -130,7 +151,7 @@ cap.release()
 cv2.destroyAllWindows()
 
 if len(trayectoria) > 2:
-    trayectoria = np.array(trayectoria)  
+    trayectoria = np.array(trayectoria)
     t = trayectoria[:, 0]
     x = trayectoria[:, 1]
     y = trayectoria[:, 2]
@@ -155,10 +176,14 @@ if len(trayectoria) > 2:
     calculate_x = vx[0] * int_t + x[0]
     calculate_y = -0.5 * 980 * int_t ** 2 + vy[0] * int_t + y[0]
     calculate_pos = np.sqrt(calculate_x**2 + calculate_y**2)
-    # Posición final
 
-    print("Velocidad promedio: %.2f cm/s" % np.mean(v))
-    print("Aceleración promedio: %.2f cm/s^2" % np.mean(a))
+    vx_prom = np.mean(vx[:t_i-1])
+    ay_prom = np.mean(ay[:t_i - 2])
+    ax_prom = np.mean(ax[:t_i - 2])
+    # Posición final
+    print(f"accel prom {ax_prom:.2f}, {ay_prom:.2f}")
+    #print("Velocidad promedio: %.2f cm/s" % vx_prom)
+    #print("Aceleración promedio: %.2f cm/s^2" % np.mean(a))
 
     # Graficar trayectoria
     plt.figure()
@@ -166,36 +191,45 @@ if len(trayectoria) > 2:
     plt.xlabel("x (cm)")
     plt.ylabel("y (cm)")
     plt.title("Trayectoria")
+    plt.grid()
     #plt.gca().invert_yaxis()
 
     # Graficar velocidad
     plt.figure(figsize=(6,4))
     plt.subplot(3,1,1)
-    plt.plot(t, v, 'r-')
+    plt.plot(t[:t_i], v[:t_i], 'r-')
     plt.xlabel("Tiempo (s)")
     plt.ylabel("Velocidad (cm/s)")
     plt.title("Velocidad vs Tiempo")
+    plt.grid()
 
     plt.subplot(3, 1, 2)
-    plt.plot(t, vx, 'r-')
+    plt.plot(t[:t_i], vx[:t_i], 'r-')
     plt.xlabel("Tiempo (s)")
     plt.ylabel("Velocidad (cm/s)")
+    plt.hlines(vx_prom,t[0],t[t_i],linestyles="dotted", label="Vx_prom")
     plt.title("Vx vs Tiempo")
+    plt.grid()
 
     plt.subplot(3, 1, 3)
-    plt.plot(t, vy)
+    plt.plot(t[:t_i], vy[:t_i])
     plt.xlabel("Tiempo (s)")
     plt.ylabel("Velocidad (cm/s)")
     plt.title("Vy vs Tiempo")
+    plt.grid()
 
     # Graficar aceleración
     plt.figure()
-    plt.plot(t, a, 'g-')
-    plt.plot(t, ax, 'r-.')
-    plt.plot(t, ay, 'b-.')
+    plt.plot(t[:t_i-2], a[:t_i-2], 'g-', label="a")
+    plt.plot(t[:t_i-2], ax[:t_i-2], 'r-.', label="ax")
+    plt.plot(t[:t_i-2], ay[:t_i-2], 'b-.', label="ay")
+    plt.hlines(ay_prom, t[0], t[t_i-3], linestyles="dotted", label="ay_prom")
+    plt.hlines(ax_prom, t[0], t[t_i - 3], linestyles="dotted", label="ax_prom")
+    plt.legend()
     plt.xlabel("Tiempo (s)")
     plt.ylabel("Aceleración (cm/s^2)")
     plt.title("Aceleración vs Tiempo")
+    plt.grid()
 
     #comparar resultados
     plt.figure()
@@ -205,6 +239,7 @@ if len(trayectoria) > 2:
     plt.ylabel("y (cm)")
     plt.legend()
     plt.title("Trayectoria aproximada")
+    plt.grid()
     plt.show()
 
     x_final = x[t_i]
